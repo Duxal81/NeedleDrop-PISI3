@@ -12,7 +12,7 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "Análise Exploratória Spotify & YouTube"
 
 try:
-    df = pd.read_csv('Spotify_Youtube.csv')
+    df = pd.read_csv('data/Spotify_Youtube.csv')
     
     if df.empty:
         raise ValueError("Dataset está vazio")
