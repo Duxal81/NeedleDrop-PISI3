@@ -16,7 +16,7 @@ def clean_text(text):
         return text.replace('$', 'S').replace('\\', '/').replace('_', ' ')
     return text
 
-df = pd.read_csv('Spotify_Youtube.csv')
+df = pd.read_parquet('data_parquet/Spotify_Youtube.parquet')
 if 'Unnamed: 0' in df.columns:
     df = df.drop(columns=['Unnamed: 0'])
 
