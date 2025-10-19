@@ -4,7 +4,6 @@ import logging
 import csv
 import sys
 
-# Configuração do logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -12,16 +11,11 @@ logging.basicConfig(
 )
 
 def verificar_dependencias_parquet():
-    """
-    Verifica se há uma engine disponível para Parquet
-    """
     try:
-        # Tenta importar pyarrow
         import pyarrow
         return 'pyarrow'
     except ImportError:
         try:
-            # Tenta importar fastparquet
             import fastparquet
             return 'fastparquet'
         except ImportError:
@@ -29,37 +23,30 @@ def verificar_dependencias_parquet():
             return None
 
 def converter_csv_para_parquet(arquivo_csv, arquivo_parquet):
-    """
-    Converte um arquivo CSV para Parquet com tratamento de erros
-    """
+    
     try:
         logging.info(f"Convertendo: {arquivo_csv}")
         
-        # Verifica se o arquivo existe
         if not os.path.exists(arquivo_csv):
             logging.error(f"🍀 Arquivo não encontrado: {arquivo_csv}")
             return False
         
-        # LEITURA DO CSV COM TRATAMENTO DE ERROS
         df = pd.read_csv(
             arquivo_csv,
             encoding='utf-8',
-            on_bad_lines='skip',      # Ignora linhas problemáticas
-            quoting=csv.QUOTE_ALL,    # Força aspas em todos os campos
-            engine='python',          # Engine mais tolerante a erros
-            skipinitialspace=True,    # Ignora espaços após separador
-            encoding_errors='ignore'  # Ignora erros de encoding
+            on_bad_lines='skip',      
+            quoting=csv.QUOTE_ALL,  
+            engine='python',         
+            skipinitialspace=True,    
+            encoding_errors='ignore'  
         )
         
-        # Verifica se o DataFrame não está vazio
         if df.empty:
             logging.error(f"🍀 Arquivo CSV vazio ou todas as linhas foram ignoradas: {arquivo_csv}")
             return False
         
-        # Cria diretório de destino se não existir
         os.makedirs(os.path.dirname(arquivo_parquet) if os.path.dirname(arquivo_parquet) else '.', exist_ok=True)
         
-        # Salva como Parquet
         df.to_parquet(arquivo_parquet, index=False, engine='auto')
         logging.info(f"🍀 Conversão bem-sucedida: {arquivo_parquet}")
         return True
@@ -75,10 +62,6 @@ def converter_csv_para_parquet(arquivo_csv, arquivo_parquet):
         return False
 
 def processar_conversao(arquivos_csv, pasta_saida='data_parquet'):
-    """
-    Processa a conversão de múltiplos arquivos CSV para Parquet
-    """
-    # Verifica dependências primeiro
     engine = verificar_dependencias_parquet()
     if not engine:
         return 0, len(arquivos_csv)
@@ -91,11 +74,10 @@ def processar_conversao(arquivos_csv, pasta_saida='data_parquet'):
     falhas = 0
     
     for arquivo_csv in arquivos_csv:
-        # Define o nome do arquivo de saída
+  
         nome_base = os.path.splitext(os.path.basename(arquivo_csv))[0]
         arquivo_parquet = os.path.join(pasta_saida, f"{nome_base}.parquet")
         
-        # Realiza a conversão
         if converter_csv_para_parquet(arquivo_csv, arquivo_parquet):
             sucessos += 1
         else:
@@ -103,7 +85,6 @@ def processar_conversao(arquivos_csv, pasta_saida='data_parquet'):
         
         logging.info("---")
     
-    # Relatório final
     logging.info("🍀 RELATÓRIO FINAL DA CONVERSÃO:")
     logging.info(f"🍀 Total de arquivos processados: {len(arquivos_csv)}")
     logging.info(f"🍀 Conversões bem-sucedidas: {sucessos}")
@@ -116,16 +97,13 @@ def main():
     """
     Função principal
     """
-    # Lista de arquivos CSV para converter
     arquivos_csv = [
         'data/Spotify_Youtube.csv'
-        # Adicione mais arquivos aqui se necessário
     ]
-    
-    # Processa a conversão
+   
+
     sucessos, falhas = processar_conversao(arquivos_csv)
     
-    # Encerra com código de erro se houver falhas
     exit(1 if falhas > 0 else 0)
 
 if __name__ == "__main__":
