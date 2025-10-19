@@ -12,7 +12,7 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "Análise Exploratória Spotify & YouTube"
 
 try:
-    df = pd.read_csv('data/Spotify_Youtube.csv')
+    df = pd.read_parquet('data_parquet/Spotify_Youtube.parquet')
     
     if df.empty:
         raise ValueError("Dataset está vazio")
@@ -22,7 +22,6 @@ except Exception as e:
     df = pd.DataFrame()
 
 def safe_clean_text(text):
-    """Versão mais segura da função de limpeza"""
     try:
         if isinstance(text, str):
             return text.replace('$', 'S').replace('\\', '/').replace('_', ' ')
@@ -49,7 +48,6 @@ def safe_value_counts(series, top_n=10):
         return pd.Series()
 
 def safe_mean(series):
-    """Média segura"""
     try:
         if series is not None and not series.empty:
             return series.mean()
@@ -58,7 +56,6 @@ def safe_mean(series):
         return 0
 
 def safe_nunique(series):
-    """Contagem única segura"""
     try:
         if series is not None and not series.empty:
             return series.nunique()
