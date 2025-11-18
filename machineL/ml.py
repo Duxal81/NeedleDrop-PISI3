@@ -325,7 +325,7 @@ def create_shap_explanations(model, X_train, X_test, y_test, feature_names, mode
             logger.info(f"Using TreeExplainer for {model_name}")
             try:
                 # TreeExplainer works well for tree-based models
-                explainer = shap.TreeExplainer(model, X_background, check_additivity=False)
+                explainer = shap.TreeExplainer(model, X_background)
                 shap_values = explainer(X_explain)
                 logger.info("TreeExplainer succeeded")
             except Exception as e:
@@ -363,15 +363,25 @@ def create_shap_explanations(model, X_train, X_test, y_test, feature_names, mode
                     feature_importance = model.feature_importances_
                     top_indices = np.argsort(feature_importance)[-10:]
                     important_features = [feature_names[i] for i in top_indices]
-                    X_explain_reduced = X_explain.iloc[:, top_indices]
+                    
+                    # Create reduced dataset with only top features
+                    X_explain_reduced = pd.DataFrame(
+                        X_explain.iloc[:, top_indices].values,
+                        columns=[feature_names[i] for i in top_indices]
+                    )
                     logger.info(f"Using top 10 features for KernelExplainer: {important_features}")
                     
                     # Calculate SHAP values for reduced feature set
                     shap_values_reduced = explainer.shap_values(X_explain_reduced)
                     
                     # Create full SHAP values array with zeros for non-selected features
+                    if isinstance(shap_values_reduced, list):
+                        # For multi-class classification
+                        shap_values_reduced = shap_values_reduced[1] if len(shap_values_reduced) > 1 else shap_values_reduced[0]
+                    
                     shap_values = np.zeros((len(X_explain), len(feature_names)))
-                    shap_values[:, top_indices] = shap_values_reduced
+                    for i, idx in enumerate(top_indices):
+                        shap_values[:, idx] = shap_values_reduced[:, i]
                     
                 else:
                     # For models without feature importances, use all features but with warning
@@ -421,17 +431,32 @@ def create_shap_explanations(model, X_train, X_test, y_test, feature_names, mode
             logger.warning(f"Failed to generate some SHAP plots: {str(e)}")
         
         # 6. Save SHAP objects for reuse
+        # Note: We avoid saving the explainer if it contains unpicklable objects (like lambda functions)
         shap_artifacts = {
-            'explainer': explainer,
             'shap_values': shap_values,
             'feature_names': feature_names,
             'model_name': model_name
         }
         
-        pickle_path = f'shap_explainer_{model_name.replace(" ", "_")}.pkl'
-        with open(pickle_path, 'wb') as f:
-            pickle.dump(shap_artifacts, f)
-        logger.info(f"Saved SHAP artifacts to {pickle_path}")
+        # Try to save the explainer, but don't fail if it can't be pickled
+        try:
+            shap_artifacts['explainer'] = explainer
+            pickle_path = f'shap_explainer_{model_name.replace(" ", "_")}.pkl'
+            with open(pickle_path, 'wb') as f:
+                pickle.dump(shap_artifacts, f)
+            logger.info(f"Saved SHAP artifacts with explainer to {pickle_path}")
+        except (TypeError, AttributeError) as e:
+            # If explainer can't be pickled (e.g., contains lambda), save without it
+            logger.warning(f"Could not pickle explainer due to: {str(e)}")
+            shap_artifacts_no_explainer = {
+                'shap_values': shap_values,
+                'feature_names': feature_names,
+                'model_name': model_name
+            }
+            pickle_path = f'shap_values_{model_name.replace(" ", "_")}.pkl'
+            with open(pickle_path, 'wb') as f:
+                pickle.dump(shap_artifacts_no_explainer, f)
+            logger.info(f"Saved SHAP values (without explainer) to {pickle_path}")
         
         logger.info(f"SHAP explanations completed successfully for {model_name}")
         
