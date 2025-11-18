@@ -17,6 +17,8 @@ from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from tabulate import tabulate
+import shap
+import logging
 
 PARQUET_PATH = 'Spotify_Youtube.parquet'
 K_VALUE = 6
@@ -267,6 +269,185 @@ def evaluate_final_models(X_train, X_test, y_train, y_test, cv_results):
     
     return results, best_model_result
 
+def create_shap_explanations(model, X_train, X_test, y_test, feature_names, model_name="Model"):
+    """
+    Create SHAP explanations for the given model with enhanced flexibility and robustness.
+    
+    Parameters:
+    -----------
+    model : sklearn model
+        Trained machine learning model
+    X_train : pd.DataFrame
+        Training data for background samples
+    X_test : pd.DataFrame
+        Test data to explain
+    y_test : pd.Series
+        Test labels
+    feature_names : list
+        List of feature names
+    model_name : str
+        Name of the model for labeling outputs
+        
+    Returns:
+    --------
+    dict : Dictionary containing SHAP values and explainer object
+    """
+    # Configure logging for better error tracking
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"Starting SHAP explanations for {model_name}...")
+    
+    try:
+        # 1. Dynamic handling for background size to optimize SHAP calculations
+        # Use first 10 samples for faster computations
+        background_size = min(10, len(X_train))
+        X_background = X_train.iloc[:background_size]
+        logger.info(f"Using background size of {background_size} samples for SHAP calculations")
+        
+        # Determine number of test samples to explain (limit for performance)
+        explain_size = min(100, len(X_test))
+        X_explain = X_test.iloc[:explain_size]
+        logger.info(f"Explaining {explain_size} test samples")
+        
+        # 2. Validate model compatibility and select appropriate explainer
+        # Models that work well with TreeExplainer
+        tree_based_models = (RandomForestClassifier, GradientBoostingClassifier, 
+                           HistGradientBoostingClassifier)
+        
+        # Models that need KernelExplainer (Logistic Regression, SVC, KNN)
+        kernel_based_models = (LogisticRegression, SVC, KNeighborsClassifier)
+        
+        explainer = None
+        shap_values = None
+        
+        if isinstance(model, tree_based_models):
+            logger.info(f"Using TreeExplainer for {model_name}")
+            try:
+                # TreeExplainer works well for tree-based models
+                explainer = shap.TreeExplainer(model, X_background, check_additivity=False)
+                shap_values = explainer(X_explain)
+                logger.info("TreeExplainer succeeded")
+            except Exception as e:
+                logger.warning(f"TreeExplainer failed: {str(e)}. Falling back to KernelExplainer")
+                explainer = None
+        
+        elif isinstance(model, kernel_based_models):
+            logger.info(f"Model {model_name} requires KernelExplainer - using automatic fallback")
+            # Automatically fallback to KernelExplainer for unsupported models
+            explainer = None
+        
+        # 3. Fallback to KernelExplainer if TreeExplainer not applicable or failed
+        if explainer is None:
+            logger.info(f"Using KernelExplainer for {model_name}")
+            try:
+                # Use reduced background for better performance
+                # KernelExplainer can be slow, so we limit background size even more
+                kernel_background_size = min(5, len(X_train))
+                X_kernel_background = X_train.iloc[:kernel_background_size]
+                logger.info(f"Using reduced background size of {kernel_background_size} for KernelExplainer")
+                
+                # Create prediction function for KernelExplainer
+                if hasattr(model, 'predict_proba'):
+                    predict_fn = lambda x: model.predict_proba(x)[:, 1]
+                else:
+                    predict_fn = model.predict
+                
+                explainer = shap.KernelExplainer(predict_fn, X_kernel_background, 
+                                                link="identity")
+                
+                # 4. Limit the number of features analyzed when computation is resource-intensive
+                # Select only top 10 most important features dynamically
+                if hasattr(model, 'feature_importances_'):
+                    # For tree-based models with feature importances
+                    feature_importance = model.feature_importances_
+                    top_indices = np.argsort(feature_importance)[-10:]
+                    important_features = [feature_names[i] for i in top_indices]
+                    X_explain_reduced = X_explain.iloc[:, top_indices]
+                    logger.info(f"Using top 10 features for KernelExplainer: {important_features}")
+                    
+                    # Calculate SHAP values for reduced feature set
+                    shap_values_reduced = explainer.shap_values(X_explain_reduced)
+                    
+                    # Create full SHAP values array with zeros for non-selected features
+                    shap_values = np.zeros((len(X_explain), len(feature_names)))
+                    shap_values[:, top_indices] = shap_values_reduced
+                    
+                else:
+                    # For models without feature importances, use all features but with warning
+                    logger.warning(f"Model {model_name} has no feature_importances_. Using all features (may be slow)")
+                    shap_values = explainer.shap_values(X_explain)
+                
+                logger.info("KernelExplainer succeeded")
+                
+            except Exception as e:
+                logger.error(f"KernelExplainer failed: {str(e)}")
+                raise
+        
+        # 5. Generate and save SHAP visualizations
+        logger.info("Generating SHAP visualizations...")
+        
+        try:
+            # Summary plot
+            plt.figure(figsize=(12, 8))
+            if hasattr(shap_values, 'values'):
+                # For SHAP 0.40+ with Explanation objects
+                shap.summary_plot(shap_values, X_explain, feature_names=feature_names, 
+                                show=False, max_display=15)
+            else:
+                # For older SHAP versions or numpy arrays
+                shap.summary_plot(shap_values, X_explain, feature_names=feature_names,
+                                show=False, max_display=15)
+            plt.tight_layout()
+            summary_plot_path = f'shap_summary_{model_name.replace(" ", "_")}.png'
+            plt.savefig(summary_plot_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            logger.info(f"Saved SHAP summary plot to {summary_plot_path}")
+            
+            # Bar plot showing mean absolute SHAP values
+            plt.figure(figsize=(12, 8))
+            if hasattr(shap_values, 'values'):
+                shap.plots.bar(shap_values, max_display=15, show=False)
+            else:
+                shap.summary_plot(shap_values, X_explain, plot_type="bar",
+                                feature_names=feature_names, show=False, max_display=15)
+            plt.tight_layout()
+            bar_plot_path = f'shap_bar_{model_name.replace(" ", "_")}.png'
+            plt.savefig(bar_plot_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            logger.info(f"Saved SHAP bar plot to {bar_plot_path}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to generate some SHAP plots: {str(e)}")
+        
+        # 6. Save SHAP objects for reuse
+        shap_artifacts = {
+            'explainer': explainer,
+            'shap_values': shap_values,
+            'feature_names': feature_names,
+            'model_name': model_name
+        }
+        
+        pickle_path = f'shap_explainer_{model_name.replace(" ", "_")}.pkl'
+        with open(pickle_path, 'wb') as f:
+            pickle.dump(shap_artifacts, f)
+        logger.info(f"Saved SHAP artifacts to {pickle_path}")
+        
+        logger.info(f"SHAP explanations completed successfully for {model_name}")
+        
+        return shap_artifacts
+        
+    except Exception as e:
+        # 5. Enhanced error handling for scenarios where SHAP calculations fail entirely
+        logger.error(f"SHAP explanation failed for {model_name}: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"This may be due to:")
+        logger.error("  - Model incompatibility with available SHAP explainers")
+        logger.error("  - Insufficient memory for the calculation")
+        logger.error("  - Issues with the data format")
+        logger.error("Continuing without SHAP explanations for this model...")
+        return None
+
 def main():
     X, y, feature_cols = load_and_prepare_data()
     X_train, X_test, y_train, y_test, feature_names = apply_cross_validation_balance(X, y)
@@ -313,6 +494,22 @@ def main():
     print(tabulate(summary_data, 
                    headers=["Modelo", "Acuracia Teste", "Recall Teste", "F1-Score Teste", "Overfitting"],
                    tablefmt="grid"))
+    
+    # Generate SHAP explanations for the best model
+    print("\n=== GERANDO EXPLICACOES SHAP ===")
+    shap_result = create_shap_explanations(
+        model=best_model_result['Model_Object'],
+        X_train=X_train,
+        X_test=X_test,
+        y_test=y_test,
+        feature_names=feature_names,
+        model_name=best_model_result['Model']
+    )
+    
+    if shap_result is not None:
+        print(f"SHAP explanations geradas com sucesso para {best_model_result['Model']}")
+    else:
+        print(f"Nao foi possivel gerar explicacoes SHAP para {best_model_result['Model']}")
     
     print(f"\nPipeline concluido. Melhor modelo: {best_model_result['Model']}")
     print(f"K utilizado: {K_VALUE}")

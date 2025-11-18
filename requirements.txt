@@ -27,3 +27,7 @@ watchdog==6.0.0
 pyarrow==21.0.0
 fastparquet==2024.11.0
 openpyxl==3.1.5
+scikit-learn==1.5.2
+imbalanced-learn==0.12.4
+shap==0.50.0
+tabulate==0.9.0
