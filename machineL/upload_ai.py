@@ -3,8 +3,8 @@ import pickle
 import numpy as np
 from supabase import create_client, Client
 
-SUPABASE_URL = ""
-SUPABASE_KEY = ""
+SUPABASE_URL = "https://qxkfkthihhlajmbiahqq.supabase.com"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF4a2ZrdGhpaGhsYWptYmlhaHFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA5ODAwNjcsImV4cCI6MjA3NjU1NjA2N30.Uv573OkhjVTAl0kniltycnF1uQtqW32G4KTXX2nYnBU"
 PARQUET_PATH = 'Spotify_Youtube.parquet'
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 print("Carregando arquivos...")
