@@ -3,6 +3,7 @@ import warnings
 warnings.filterwarnings("ignore")
 import numpy as np
 import pickle
+import shap # Adicionado
 from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import mean_absolute_error, accuracy_score, classification_report, recall_score, f1_score
@@ -287,10 +288,6 @@ def main():
             random_state=RANDOM_STATE, max_iter=100, max_depth=6,
             learning_rate=0.1, early_stopping=True
         ),
-        'SVM': SVC(
-            random_state=RANDOM_STATE, C=1.0, kernel='rbf',
-            class_weight='balanced', probability=True
-        ),
         'K-Nearest Neighbors': KNeighborsClassifier(
             n_neighbors=15, weights='distance'
         )
@@ -316,6 +313,24 @@ def main():
     
     print(f"\nPipeline concluido. Melhor modelo: {best_model_result['Model']}")
     print(f"K utilizado: {K_VALUE}")
+
+    print("\n=== GERANDO ANALISE SHAP (IMAGEM) ===")
+    try:
+        X_sample = X_test.iloc[:200]
+        model = best_model_result['Model_Object']
+        explainer = shap.Explainer(model, X_sample)
+        shap_values = explainer(X_sample)
+        if len(shap_values.shape) > 2:
+            shap_values = shap_values[:, :, 1]
+
+        plt.figure()
+        shap.summary_plot(shap_values, X_sample, show=False)
+        plt.savefig(f'shap_summary_{best_model_result["Model"].replace(" ", "_")}.png', bbox_inches='tight', dpi=300)
+        plt.close()
+        print("Imagem SHAP salva com sucesso.")
+        
+    except Exception as e:
+        print(f"Nao foi possivel gerar o grafico SHAP: {e}")
 
 if __name__ == "__main__":
     main()
