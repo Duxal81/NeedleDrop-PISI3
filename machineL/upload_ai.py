@@ -4,36 +4,39 @@ import numpy as np
 from supabase import create_client, Client
 import os
 
+base_path = os.path.dirname(os.path.abspath(__file__))
 SUPABASE_URL = "https://qxkfkthihhlajmbiahqq.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF4a2ZrdGhpaGhsYWptYmlhaHFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA5ODAwNjcsImV4cCI6MjA3NjU1NjA2N30.Uv573OkhjVTAl0kniltycnF1uQtqW32G4KTXX2nYnBU"
-PARQUET_PATH = 'Spotify_Youtube.parquet'
 
+PARQUET_PATH = os.path.join(base_path, 'Spotify_Youtube.parquet')
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 df = pd.read_parquet(PARQUET_PATH)
-audio_features = ['Danceability', 'Energy', 'Key', 'Loudness', 'Speechiness', 
-                  'Acousticness', 'Instrumentalness', 'Liveness', 'Valence', 'Tempo', 'Duration_ms']
+
+audio_features = ['Danceability', 'Energy', 'Key', 'Loudness', 'Speechiness', 'Acousticness', 'Instrumentalness', 'Liveness', 'Valence', 'Tempo', 'Duration_ms']
 popularity_features = ['Views', 'Likes', 'Comments', 'Stream']
 all_features = audio_features + popularity_features
 df = df.dropna(subset=all_features).reset_index(drop=True)
-with open('kmeans_k6.pkl', 'rb') as f:
+
+with open(os.path.join(base_path, 'kmeans_k6.pkl'), 'rb') as f:
     kmeans = pickle.load(f)
-with open('scaler_kmeans.pkl', 'rb') as f:
+with open(os.path.join(base_path, 'scaler_kmeans.pkl'), 'rb') as f:
     scaler = pickle.load(f)
+with open(os.path.join(base_path, 'best_model.pkl'), 'rb') as f:
+    best_model = pickle.load(f)
+
 X_scaled = scaler.transform(df[all_features])
 clusters = kmeans.predict(X_scaled)
-df['cluster_id'] = clusters
-df['cluster_id'] = df['cluster_id'].astype(int)
-data_to_upload = df.rename(columns={
-    'Title': 'title',
-    'Artist': 'artist',
-    'Url_youtube': 'youtube_url',
-    'Url_spotify': 'spotify_url',
-    'Valence': 'valence',
-    'Energy': 'energy',
-    'Danceability': 'danceability'
-})
-cols_final = ['title', 'artist', 'youtube_url', 'spotify_url', 'cluster_id', 'valence', 'energy', 'danceability']
+df['cluster_id'] = clusters.astype(int)
+user_dummy = np.zeros((X_scaled.shape[0], 1))
+clusters_onehot = np.zeros((X_scaled.shape[0], 6))
+for i in range(6):
+    clusters_onehot[np.where(clusters == i), i] = 1
+X_for_rf = np.hstack((X_scaled, user_dummy, clusters_onehot))
+df['predicted_rating'] = best_model.predict(X_for_rf)
+data_to_upload = df.rename(columns={'Title': 'title', 'Artist': 'artist', 'Url_youtube': 'url_youtube', 'Url_spotify': 'url_spotify', 'Valence': 'valence', 'Energy': 'energy', 'Danceability': 'danceability'})
+cols_final = ['title', 'artist', 'url_youtube', 'url_spotify', 'cluster_id', 'predicted_rating', 'valence', 'energy', 'danceability']
 records = data_to_upload[cols_final].to_dict(orient='records')
+
 batch_size = 1000
 total = len(records)
 for i in range(0, total, batch_size):
